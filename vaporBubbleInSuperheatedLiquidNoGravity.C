@@ -84,6 +84,37 @@ dimensionedScalar bubbleRadius
 	return 2*beta*Foam::sqrt(liquidThermCond*time/liquidRho/liquidCp);
 }
 
+// Calculates integral (Eq. (34) or Eq. (35))
+dimensionedScalar calcIntegral
+(
+	const label N,                        // number of rectangles
+	const dimensionedScalar beta,         // beta_g
+	const dimensionedScalar R,            // initial bubble radius
+	const dimensionedScalar r,            // radius 
+	const dimensionedScalar rho1,         // liquid density
+	const dimensionedScalar rho2          // vapor density
+)
+{
+	// Number of nodes
+	const label nodes = N+1;
+	
+	// Thickness of a rectangular
+	const scalar dksi = ( 1.0-(1-(R/r).value()) )/N;
+	scalar ksi = 0;
+	dimensionedScalar integral("integral0", dimless, 0);
+
+	for (int i = 0; i<nodes-1; i++)
+	{
+		integral += Foam::exp
+		(
+			-Foam::pow(beta, 2)*(Foam::pow(1-ksi, -2) - 2*(1 - rho2/rho1)*ksi - 1)
+		)*dksi;
+		ksi += dksi;
+	}
+
+	return integral;
+}
+
 int main(int argc, char *argv[])
 {
 
@@ -102,31 +133,15 @@ int main(int argc, char *argv[])
 	// LHS of Eq. (34)
 	const dimensionedScalar LHS = rho1*cp1*(Tinf-TSat)/rho2/(hEvap+(cp1-cp2)*(Tinf-TSat));
 	
-	// Number of nodes
-	const label nodes = N+1;
-	
-	// Thickness of a rectangular
-	const scalar dksi = (1.0-0)/N;
-	scalar ksi = 0;
-
 	// Integral in Eq. (34)
 	dimensionedScalar RHS("RHS", dimless, 0.0);
 	dimensionedScalar beta_g_prev = 0;               // guess of starting value
 
-    Info<< endl << "Obliczam beta_g ... " << endl;
+    Info<< endl << "Obliczam beta_g... " << endl;
 	do 
 	{
 		beta_g_prev = beta_g;		
-		ksi = 0;
-		RHS = 0;
-		for (int i = 0; i<nodes-1; i++)
-		{
-			RHS += Foam::exp
-			(
-				-Foam::pow(beta_g, 2)*(Foam::pow(1-ksi, -2) - 2*(1 - rho2/rho1)*ksi - 1)
-			)*dksi;
-			ksi += dksi;
-		}
+		RHS = calcIntegral(N, beta_g, R, R, rho1, rho2);
 		beta_g = Foam::sqrt(LHS/2.0/RHS);
 		iter++;
 	} while ( mag(beta_g.value() - beta_g_prev.value()) > tol && iter < maxIterNr);
@@ -134,7 +149,7 @@ int main(int argc, char *argv[])
     Info<< endl << "Liczba iteracji: " << iter << endl;
 	Info<< "beta_g = " << beta_g.value() << endl;
 
-    Info<< endl << "Obliczam analityczny rozklad temperatury  ... " << endl;
+    Info<< endl << "Obliczam analityczny rozklad temperatury... " << endl;
 	OFstream IFfileT("bubbleTemperature.txt");
 	IFfileT << "Radius [m]\t" << "Analytical temperature [K]" << endl;
 	dimensionedScalar Tempr("Tempr", dimTemperature, 0);
@@ -144,21 +159,49 @@ int main(int argc, char *argv[])
 	dimensionedScalar r = R;
 	for (int rstep=0; rstep<Rsegments+1; rstep++)
 	{
-		ksi = 0;
 		dimensionedScalar integral("integral", dimless, 0);
-		scalar dKsi = (1.0-( 1-(R/r).value() ))/N;
-		for (int i=0; i<nodes-1; i++)
-		{
-			integral += Foam::exp
-			(
-				-Foam::pow(beta_g, 2)*(Foam::pow(1-ksi, -2) - 2*(1 - rho2/rho1)*ksi - 1)
-			)*dKsi;
-			ksi += dKsi;
-		}
+		integral = calcIntegral(N, beta_g, R, r, rho1, rho2);
 		Tempr = Tinf - 2*beta_g*beta_g*B*integral;
 		IFfileT << r.value() << "\t" << Tempr.value() << endl;
 		r += dr;
 	}
+	Info<< "\nSaving the results to bubbleTemperature.txt\n" << endl;
+
+	// Creating initial conditions for temperature based on analytical solution
+    volScalarField radius
+    (
+        IOobject
+        (
+			"radius",
+            runTime.timeName(),
+            mesh,
+            IOobject::NO_READ,
+            IOobject::NO_WRITE
+        ),
+        mesh,
+		dimensionedScalar("r0", dimLength, 0)
+    );
+
+	const volVectorField cells = mesh.C();
+
+	forAll(cells, celli)
+	{
+		radius[celli] = Foam::sqrt
+		(
+			Foam::pow(cells[celli].component(0), 2)
+	      + Foam::pow(cells[celli].component(1), 2)
+	      + Foam::pow(cells[celli].component(2), 2)
+		);
+	}
+
+	volScalarField Tini = T;
+
+	forAll(Tini, celli)
+	{
+		Tini[celli] = Tinf.value() - 2*beta_g.value()*beta_g.value()
+			*calcIntegral(N, beta_g, R, radius[celli], rho1, rho2).value();
+	}
+	Tini.write();
 
 	OFstream IFfile("bubbleRadius.txt");
 	IFfile << "Time [s]\t" << "Numerical [m]\t" << "Analytical [m]\t" << "Error [%]" << endl;
