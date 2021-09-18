@@ -152,18 +152,19 @@ int main(int argc, char *argv[])
     Info<< endl << "Obliczam analityczny rozklad temperatury... " << endl;
 	OFstream IFfileT("bubbleTemperature.txt");
 	IFfileT << "Radius [m]\t" << "Analytical temperature [K]" << endl;
-	dimensionedScalar Tempr("Tempr", dimTemperature, 0);
+    dimensionedScalar Tempr0("Tempr0", dimTemperature, 0);
+	List<dimensionedScalar> Tempr(Rsegments+1, Tempr0.value());
 	dimensionedScalar dr = (Rend-R)/Rsegments;	
 	const dimensionedScalar B = rho2*(hEvap+(cp1-cp2)*(Tinf-TSat))/rho1/cp1;
 
-	dimensionedScalar r = R;
+	List<dimensionedScalar> r(Rsegments+2, R.value());
 	for (int rstep=0; rstep<Rsegments+1; rstep++)
 	{
 		dimensionedScalar integral("integral", dimless, 0);
-		integral = calcIntegral(N, beta_g, R, r, rho1, rho2);
-		Tempr = Tinf - 2*beta_g*beta_g*B*integral;
-		IFfileT << r.value() << "\t" << Tempr.value() << endl;
-		r += dr;
+		integral = calcIntegral(N, beta_g, R, r[rstep], rho1, rho2);
+		Tempr[rstep] = Tinf.value() - 2*beta_g*beta_g*B.value()*integral;
+		IFfileT << r[rstep].value() << "\t" << Tempr[rstep].value() << endl;
+		r[rstep+1] = r[rstep] + dr.value();
 	}
 	Info<< "\nSaving the results to bubbleTemperature.txt\n" << endl;
 
@@ -194,12 +195,34 @@ int main(int argc, char *argv[])
 		);
 	}
 
-	volScalarField Tini = T;
+	Info<< "Creating field Tini\n" << endl;
+	volScalarField Tini
+	(
+	    IOobject
+	    (
+	        "Tini",
+	        runTime.timeName(),
+	        mesh,
+	        IOobject::NO_READ,
+	        IOobject::AUTO_WRITE
+	    ),
+	    T
+	);
 
 	forAll(Tini, celli)
 	{
-		Tini[celli] = Tinf.value() - 2*beta_g.value()*beta_g.value()
-			*calcIntegral(N, beta_g, R, radius[celli], rho1, rho2).value();
+		for (int rstep=0; rstep<Rsegments+1; rstep++)
+		{
+			if (radius[celli] >= r[rstep].value())
+			{
+				const scalar uuu = Tempr[rstep].value();
+				Info<< "uuu = " << uuu << endl;
+				Info<< "Tini[celli] = " << Tempr[rstep].value() << endl;
+				//Tini[celli] = Tempr[rstep].value();
+				Tini[celli] = uuu;
+				break;
+			}
+		}
 	}
 	Tini.write();
 
