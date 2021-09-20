@@ -168,63 +168,63 @@ int main(int argc, char *argv[])
 	}
 	Info<< "\nSaving the results to bubbleTemperature.txt\n" << endl;
 
-	// Creating initial conditions for temperature based on analytical solution
-    volScalarField radius
-    (
-        IOobject
-        (
-			"radius",
-            runTime.timeName(),
-            mesh,
-            IOobject::NO_READ,
-            IOobject::NO_WRITE
-        ),
-        mesh,
-		dimensionedScalar("r0", dimLength, 0)
-    );
 
-	const volVectorField cells = mesh.C();
-
-	forAll(cells, celli)
+	if (calcTiniAnalytical)
 	{
-		radius[celli] = Foam::sqrt
-		(
-			Foam::pow(cells[celli].component(0), 2)
-	      + Foam::pow(cells[celli].component(1), 2)
-	      + Foam::pow(cells[celli].component(2), 2)
-		);
-	}
+		// Creating initial conditions for temperature based on analytical solution
+    	volScalarField radius
+    	(
+    	    IOobject
+    	    (
+				"radius",
+    	        runTime.timeName(),
+    	        mesh,
+    	        IOobject::NO_READ,
+    	        IOobject::NO_WRITE
+    	    ),
+    	    mesh,
+			dimensionedScalar("r0", dimLength, 0)
+    	);
 
-	Info<< "Creating field Tini\n" << endl;
-	volScalarField Tini
-	(
-	    IOobject
-	    (
-	        "Tini",
-	        runTime.timeName(),
-	        mesh,
-	        IOobject::NO_READ,
-	        IOobject::AUTO_WRITE
-	    ),
-	    T
-	);
+		const volVectorField cells = mesh.C();
 
-	forAll(Tini, celli)
-	{
-		for (int rstep=0; rstep<Rsegments+1; rstep++)
+		forAll(cells, celli)
 		{
-			if (radius[celli] >= r[rstep].value())
+			radius[celli] = Foam::sqrt
+			(
+				Foam::pow(cells[celli].component(0), 2)
+		      + Foam::pow(cells[celli].component(1), 2)
+		      + Foam::pow(cells[celli].component(2), 2)
+			);
+		}
+
+		Info<< "Creating field Tini\n" << endl;
+		volScalarField Tini
+		(
+		    IOobject
+		    (
+		        "Tini",
+		        runTime.timeName(),
+		        mesh,
+		        IOobject::NO_READ,
+		        IOobject::AUTO_WRITE
+		    ),
+		    T
+		);
+
+		forAll(Tini, celli)
+		{
+			for (int rstep=0; rstep<Rsegments+1; rstep++)
 			{
-				const scalar uuu = Tempr[rstep].value();
-				Info<< "uuu = " << uuu << endl;
-				Info<< "Tini[celli] = " << Tempr[rstep].value() << endl;
-				//Tini[celli] = Tempr[rstep].value();
-				Tini[celli] = uuu;
-				break;
+				if (radius[celli] >= r[rstep].value() 
+				 && radius[celli] <  r[rstep+1].value() )
+				{
+					Tini[celli] = Tempr[rstep].value();
+				}
 			}
 		}
+		Tini.write();
 	}
-	Tini.write();
 
 	OFstream IFfile("bubbleRadius.txt");
 	IFfile << "Time [s]\t" << "Numerical [m]\t" << "Analytical [m]\t" << "Error [%]" << endl;
